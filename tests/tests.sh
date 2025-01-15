@@ -60,8 +60,8 @@ find . -name AndroidManifest.xml |while read -r manifest;do
 			grep -qE '^'"$key"'$' tests/knownKeys && continue
 			#Run the ag only on phh's machine. Assume that knownKeys is full enough.
 			#If it's enough, ask phh to update it
-			if [ -d /build2/AOSP-11.0 ] && \
-				(ag '"'"$key"'"' /build2/AOSP-11.0/frameworks/base/core/res/res || \
+			if [ -d /nvme2/AOSP-15.a/ ] && \
+				(ag '"'"$key"'"' /nvme2/AOSP-15.a/frameworks/base/core/res/res || \
 				ag '"'"$key"'"' /build/AOSP-8.1/frameworks/base/core/res/res)> /dev/null ;then
 				echo "$key" >> tests/knownKeys
 			else
@@ -69,6 +69,34 @@ find . -name AndroidManifest.xml |while read -r manifest;do
 			fi
 		done
 	done
+
+    # If overlay has automatic brightness enabled, it's supposed to also include values for it
+    if grep -qE 'config_automatic_brightness_available.*true' -r "$folder";then
+        if ! grep -r -q -e config_autoBrightnessLcdBacklightValues -e config_autoBrightnessDisplayValuesNits "$folder";then
+            fail "$folder" "tries to enable automatic brightness, without actually setting it up"
+        fi
+    fi
+
+    # Ensure power profile only contain expected types
+    f="$folder"/res/xml/power_profile.xml
+    if [ -f "$f" ];then
+        if xmlstarlet sel -t -m '//*' -v 'name()' -n "$f" |sort -u |grep -qvE '^(array|device|item|value|modem|sleep|idle|active|receive|transmit)';then
+            fail "$f" "sets non-sense power-profile values"
+        fi
+        if [ "$(xmlstarlet sel -t -m '//item[@name="battery.capacity"]' -v . -n "$f")" = 1000 ];then
+            fail "$f" "a 1000mAh battery? Sounds wrong."
+        fi
+    fi
+
+    # Ensure user didn't left some public.xml
+	find "$folder" -name \*.xml |while read -r xml;do
+        if xmlstarlet sel -t -m '//public' -c . "$xml" |grep -qE ..;then
+            fail "$xml" "declares public.xml"
+        fi
+    done
+    if find "$folder" -name color_extraction.xml |grep -qE ..;then
+        fail "$folder" "sets color_extraction.xml"
+    fi
 done
 
 #Help handling with priorities
